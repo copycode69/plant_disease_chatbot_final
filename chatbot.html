@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Plant Disease Chatbot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0fff0;
+      margin: 0;
+      padding: 0;
+    }
+    #container {
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+    }
+    #chatbox {
+      height: 70vh;
+      overflow-y: auto;
+      background: white;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    .user, .bot {
+      margin: 10px 0;
+      padding: 8px;
+      border-radius: 8px;
+    }
+    .user {
+      background-color: #d1ffd1;
+      text-align: right;
+    }
+    .bot {
+      background-color: #f0f0f0;
+    }
+    /* NEW: Product card styling */
+    .product-card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 10px;
+      margin: 10px 0;
+      background: white;
+    }
+    .product-card img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+      margin: 5px 0;
+    }
+    #input-container {
+      display: flex;
+    }
+    #input {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+    }
+    #send {
+      padding: 10px 20px;
+      background: green;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    .recommended-product {
+    margin-top: 20px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 15px;
+    background: #f9f9f9;
+}
+
+.product-header h3 {
+    color: #2e7d32;
+    margin-bottom: 15px;
+    font-size: 1.2em;
+}
+
+.product-card {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.product-image img {
+    width: 150px;
+    height: 150px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.product-details {
+    flex: 1;
+}
+
+.product-details h4 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 1.1em;
+}
+
+.description {
+    color: #555;
+    margin-bottom: 15px;
+    line-height: 1.5;
+}
+
+.buy-button {
+    display: inline-block;
+    background-color: #2e7d32;
+    color: white;
+    padding: 8px 15px;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: background-color 0.3s;
+}
+
+.buy-button:hover {
+    background-color: #1b5e20;
+}
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h2>🌿 Plant Disease Assistant</h2>
+    <div id="chatbox"></div>
+    <div id="input-container">
+      <input type="text" id="input" placeholder="Ask about a disease..." 
+             onkeypress="if(event.keyCode == 13) document.getElementById('send').click()"/>
+      <button id="send">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const chatbox = document.getElementById('chatbox');
+    const input = document.getElementById('input');
+    const send = document.getElementById('send');
+
+    // Scroll to bottom of chat
+    function scrollToBottom() {
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    send.onclick = async () => {
+      const userText = input.value.trim();
+      if (!userText) return;
+
+      // Add user message
+      const userDiv = document.createElement("div");
+      userDiv.className = "user";
+      userDiv.innerText = `🌱 You: ${userText}`;
+      chatbox.appendChild(userDiv);
+      input.value = '';
+      scrollToBottom();
+
+      try {
+        // Show typing indicator
+        const typingDiv = document.createElement("div");
+        typingDiv.className = "bot";
+        typingDiv.innerHTML = "🤖 Bot: <em>Typing...</em>";
+        chatbox.appendChild(typingDiv);
+        scrollToBottom();
+
+        const res = await fetch('http://localhost:5000/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: userText })
+        });
+
+        const data = await res.json();
+        
+        // Remove typing indicator
+        chatbox.removeChild(typingDiv);
+        
+        // Add bot response (using innerHTML to render product cards)
+        const botDiv = document.createElement("div");
+        botDiv.className = "bot";
+        botDiv.innerHTML = `🤖 Bot:<br>${data.response}`;
+        chatbox.appendChild(botDiv);
+        
+        // Scroll after images load
+        const images = botDiv.getElementsByTagName('img');
+        for (let img of images) {
+          img.onload = scrollToBottom;
+          img.onerror = function() {
+            this.style.display = 'none';
+            scrollToBottom();
+          }
+        }
+        
+        scrollToBottom();
+      } catch (err) {
+        console.error(err);
+        const botDiv = document.createElement("div");
+        botDiv.className = "bot";
+        botDiv.innerHTML = "⚠️ Error connecting to server.";
+        chatbox.appendChild(botDiv);
+        scrollToBottom();
+      }
+    };
+  </script>
+</body>
+</html>
