@@ -1,7 +1,8 @@
 import os
 import csv
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain.chains import RetrievalQA
 from langchain.schema import Document
 
 # Set API Key
@@ -11,17 +12,18 @@ PERSIST_DIR = "./backend/chroma_store"
 CSV_PATH = "backend/products.csv"
 DEFAULT_IMAGE = 'https://via.placeholder.com/200x150?text=No+Image'
 
-# Fixed CSV loader with unique embeddings for each disease
+# Custom CSV loader with enhanced content creation
 def custom_csv_loader(file_path):
     docs = []
     with open(file_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Create disease-specific embedding content
+            # Create robust content for embeddings including symptoms
             page_content = (
-                f"Treatment for {row['disease']}: "
-                f"Use {row['product_name']} which is {row['description']}. "
-                f"It specifically targets {row['disease']} pathogens."
+                f"Disease: {row['disease']} | "
+                f"Symptoms: {row['disease'].replace(' ', ', ')} | "
+                f"Product: {row['product_name']} | "
+                f"Description: {row['description']}"
             )
             metadata = {
                 "disease": row["disease"],
@@ -33,7 +35,7 @@ def custom_csv_loader(file_path):
             docs.append(Document(page_content=page_content, metadata=metadata))
     return docs
 
-# Vectorstore management
+# Vectorstore management with diagnostics
 def create_or_load_vectorstore():
     embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     if not os.path.exists(PERSIST_DIR):
@@ -54,16 +56,36 @@ def create_or_load_vectorstore():
         print(f"Loaded existing vectorstore with {vectorstore._collection.count()} products")
     return vectorstore
 
-# Preload disease-product mapping
-def load_disease_map():
-    disease_map = {}
+# Build retriever with optimized thresholds
+retriever = create_or_load_vectorstore().as_retriever(
+    search_type="similarity",
+    search_kwargs={"k": 3, "score_threshold": 0.5}  # Broader search parameters
+)
+
+# QA Chain configuration
+qa_chain = RetrievalQA.from_chain_type(
+    llm=ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0.2),
+    retriever=retriever,
+    return_source_documents=True
+)
+
+# Enhanced disease matching
+def find_products_for_disease(disease_query):
+    disease_lower = disease_query.strip().lower()
+    matches = []
+    
     with open(CSV_PATH, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            disease_map[row['disease'].lower()] = row
-    return disease_map
-
-DISEASE_MAP = load_disease_map()
+            # Check multiple matching strategies
+            row_disease = row["disease"].strip().lower()
+            if (disease_lower == row_disease or
+                disease_lower in row_disease or
+                any(word in row_disease for word in disease_lower.split()) or
+                disease_lower in row["description"].lower()):
+                matches.append(row)
+                
+    return matches
 
 # HTML product card generator
 def build_product_card(name, link, desc, img):
@@ -87,45 +109,33 @@ def build_product_card(name, link, desc, img):
     </div>
     """
 
-# Bot response handler - SIMPLIFIED and FIXED
+# Bot response handler
 def get_bot_reply(query):
-    normalized_query = query.lower().strip()
-    
-    # 1. First try exact match from preloaded CSV data
-    if normalized_query in DISEASE_MAP:
-        product = DISEASE_MAP[normalized_query]
+    # First try vector-based matching
+    try:
+        result = qa_chain.invoke({"query": f"Plant disease: {query}"})
+        if source_docs := result.get("source_documents", []):
+            for doc in source_docs:
+                metadata = doc.metadata
+                if all(key in metadata for key in ["product_name", "product_link", "description"]):
+                    return build_product_card(
+                        metadata["product_name"],
+                        metadata["product_link"],
+                        metadata["description"],
+                        metadata.get("image_url", "")
+                    )
+    except Exception as e:
+        print(f"Vector search error: {str(e)}")
+
+    # Then try direct CSV matching
+    if products := find_products_for_disease(query):
+        product = products[0]  # Get best match
         return build_product_card(
             product["product_name"],
             product["product_link"],
             product["description"],
             product.get("image_url", "")
         )
-    
-    # 2. Try semantic search
-    try:
-        vectorstore = create_or_load_vectorstore()
-        results = vectorstore.similarity_search(query, k=1)
-        if results:
-            product = results[0].metadata
-            return build_product_card(
-                product["product_name"],
-                product["product_link"],
-                product["description"],
-                product.get("image_url", "")
-            )
-    except Exception as e:
-        print(f"Semantic search error: {str(e)}")
-    
-    # 3. Try keyword matching in disease names
-    for disease_name in DISEASE_MAP.keys():
-        if normalized_query in disease_name:
-            product = DISEASE_MAP[disease_name]
-            return build_product_card(
-                product["product_name"],
-                product["product_link"],
-                product["description"],
-                product.get("image_url", "")
-            )
-    
+
     # Final fallback
-    return "<div class='bot-response'>Sorry, no specific treatment found. Consult a plant specialist.</div>"
+    return "<div class='bot-response'>Sorry, no specific treatment found. Try general fungicide for fungal diseases.</div>"
