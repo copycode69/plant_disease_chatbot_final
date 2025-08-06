@@ -167,7 +167,7 @@
         chatbox.appendChild(typingDiv);
         scrollToBottom();
 
-        const res = await fetch('http://localhost:5000/chat', {
+        const res = await fetch('https://plant-disease-chatbot-final.onrender.com/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: userText })
